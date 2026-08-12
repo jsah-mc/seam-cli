@@ -1,0 +1,33 @@
+[package]
+name = "seam-cli"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "seam"
+path = "src/main.rs"
+
+[dependencies]
+material-color-utilities-rs = { version = "0.2.1", features = ["serde"] }
+image = "0.25"
+
+# Keyring
+keyring = { version = "4.1.6", features = ["linux-keyutils-keyring-store"]}
+rpassword = "7.4"
+
+# Modern, robust CLI flag parser 
+clap = { version = "4.4", features = ["derive"] }
+
+# Template compiler engine (Jinja2 syntax)
+tera = "2.1.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1.1.4+spec-1.1.0"
+reqwest = { version = "0.13", features = ["json", "query"] }
+url = "2.5"
+
+# Ai Tools
+rig = { version = "0.41.0", features = ["rmcp"] }
+futures = "0.3"
+tokio = { version = "1.53.1", features = ["macros", "process", "rt-multi-thread"] }
+rmcp = { version = "2.2.0", features = ["client", "transport-child-process"] }

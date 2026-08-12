@@ -1,0 +1,16 @@
+{{ base16.base00.default.hex }}
+{{ base16.base08.default.hex }}
+{{ base16.base0b.default.hex }}
+{{ base16.base0a.default.hex }}
+{{ base16.base0d.default.hex }}
+{{ base16.base0e.default.hex }}
+{{ base16.base0c.default.hex }}
+{{ base16.base05.default.hex }}
+{{ base16.base03.default.hex }}
+{{ base16.base09.default.hex }}
+{{ base16.base01.default.hex }}
+{{ base16.base02.default.hex }}
+{{ base16.base04.default.hex }}
+{{ base16.base06.default.hex }}
+{{ base16.base0f.default.hex }}
+{{ base16.base07.default.hex }}
