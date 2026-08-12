@@ -63,9 +63,6 @@ pub fn generate(
     Some(&quickshell_output),
     &context,
   )?;
-  if !image.as_os_str().is_empty() {
-    set_wall(&image)?;
-  }
   reload_quickshell();
   let hyprland_output = config_home()?.join("hypr/modules/colors.lua");
   render_template(
