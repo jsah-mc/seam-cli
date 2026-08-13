@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 material-color-utilities-rs = { version = "0.2.1", features = ["serde"] }
+material-colors = { version = "0.4.0", features = ["image", "serde"] }
 image = "0.25"
 
 # Keyring

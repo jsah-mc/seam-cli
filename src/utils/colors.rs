@@ -1,9 +1,13 @@
-use material_color_utilities_rs::{
-  htc::Hct,
-  palettes::{core::CorePalette, tonal::TonalPalette},
-  quantize::quantizer_celebi::QuantizerCelebi,
-  scheme::Scheme,
-  score::score,
+#[cfg(test)]
+use material_color_utilities_rs::palettes::core::CorePalette;
+use material_color_utilities_rs::{htc::Hct, scheme::Scheme};
+use material_colors::{
+  color::Argb,
+  dynamic_color::{DynamicScheme, Variant},
+  hct::Cam16,
+  quantize::{Quantizer, QuantizerCelebi},
+  scheme::Scheme as MatugenScheme,
+  score::Score,
 };
 use std::{
   collections::BTreeMap,
@@ -55,6 +59,7 @@ pub fn generate(
     light,
     imported.as_ref().map(|palette| &palette.colors),
     theme_name,
+    dynamic_type,
   );
   // QStandardPaths.StateLocation is application-specific for QuickShell.
   let quickshell_output = state_home()?.join("quickshell/user/generated/colors.json");
@@ -63,6 +68,9 @@ pub fn generate(
     Some(&quickshell_output),
     &context,
   )?;
+  if !image.as_os_str().is_empty() {
+    set_wall(&image)?;
+  }
   reload_quickshell();
   let hyprland_output = config_home()?.join("hypr/modules/colors.lua");
   render_template(
@@ -175,85 +183,46 @@ fn generate_dynamic_schemes(
   scheme_type: &str,
 ) -> Result<([u8; 4], Scheme, Scheme), Box<dyn std::error::Error>> {
   let downsampled = image::open(image)?
-    .resize(32, 32, image::imageops::FilterType::Nearest)
+    .resize(112, 112, image::imageops::FilterType::Triangle)
     .into_rgba8();
-  let pixels: Vec<[u8; 4]> = downsampled
+  let pixels: Vec<Argb> = downsampled
     .as_raw()
     .chunks_exact(4)
-    .filter(|pixel| pixel[3] != 0)
-    .map(|pixel| [pixel[3], pixel[0], pixel[1], pixel[2]])
+    .filter(|pixel| pixel[3] == 255)
+    .map(|pixel| Argb::new(pixel[3], pixel[0], pixel[1], pixel[2]))
     .collect();
-  let fallback = [0xFF, 0x67, 0x50, 0xA4];
+  let fallback = Argb::new(0xff, 0x67, 0x50, 0xa4);
   let seed = if pixels.is_empty() {
     fallback
   } else {
-    let quantized = QuantizerCelebi.quantize(&pixels, 16);
-    score(&quantized).first().copied().unwrap_or(fallback)
+    let mut quantized = QuantizerCelebi::quantize(&pixels, 128);
+    quantized
+      .color_to_count
+      .retain(|color, _| Cam16::from(*color).chroma >= 5.0);
+    Score::score(&quantized.color_to_count, None, Some(fallback), None)
+      .first()
+      .copied()
+      .unwrap_or(fallback)
   };
-  let mut palette = dynamic_core_palette(seed, scheme_type);
-  let light = Scheme::light_from_core_palette(&mut palette);
-  let dark = Scheme::dark_from_core_palette(&mut palette);
-  Ok((seed, light, dark))
+  let variant = matugen_variant(scheme_type);
+  let light = MatugenScheme::from(DynamicScheme::by_variant(seed, &variant, false, None));
+  let dark = MatugenScheme::from(DynamicScheme::by_variant(seed, &variant, true, None));
+  let seed = argb_array(seed);
+  Ok((seed, legacy_scheme(&light), legacy_scheme(&dark)))
 }
 
-fn dynamic_core_palette(seed: [u8; 4], scheme_type: &str) -> CorePalette {
-  let source = Hct::from_int(seed);
-  let hue = source.hue();
-  let tonal = |hue, chroma| TonalPalette::from_hue_and_chroma(hue, chroma);
-  let error = tonal(25.0, 84.0);
-
+fn matugen_variant(scheme_type: &str) -> Variant {
   match scheme_type {
-    "auto" => CorePalette::new(seed, false),
-    "content" | "fidelity" => CorePalette::new(seed, true),
-    "expressive" => CorePalette {
-      a1: tonal(hue + 240.0, 40.0),
-      a2: tonal(hue + 45.0, 24.0),
-      a3: tonal(hue + 120.0, 32.0),
-      n1: tonal(hue + 15.0, 8.0),
-      n2: tonal(hue + 15.0, 12.0),
-      error,
-    },
-    "fruit-salad" => CorePalette {
-      a1: tonal(hue - 50.0, 48.0),
-      a2: tonal(hue - 50.0, 36.0),
-      a3: tonal(hue, 36.0),
-      n1: tonal(hue, 10.0),
-      n2: tonal(hue, 16.0),
-      error,
-    },
-    "monochrome" => CorePalette {
-      a1: tonal(hue, 0.0),
-      a2: tonal(hue, 0.0),
-      a3: tonal(hue, 0.0),
-      n1: tonal(hue, 0.0),
-      n2: tonal(hue, 0.0),
-      error,
-    },
-    "neutral" => CorePalette {
-      a1: tonal(hue, 12.0),
-      a2: tonal(hue, 8.0),
-      a3: tonal(hue, 16.0),
-      n1: tonal(hue, 2.0),
-      n2: tonal(hue, 4.0),
-      error,
-    },
-    "rainbow" => CorePalette {
-      a1: tonal(hue, 48.0),
-      a2: tonal(hue, 16.0),
-      a3: tonal(hue + 60.0, 24.0),
-      n1: tonal(hue, 0.0),
-      n2: tonal(hue, 0.0),
-      error,
-    },
-    "vibrant" => CorePalette {
-      a1: tonal(hue, 200.0),
-      a2: tonal(hue + 18.0, 24.0),
-      a3: tonal(hue + 35.0, 32.0),
-      n1: tonal(hue, 10.0),
-      n2: tonal(hue, 12.0),
-      error,
-    },
-    _ => CorePalette::new(seed, false),
+    "content" => Variant::Content,
+    "expressive" => Variant::Expressive,
+    "fidelity" => Variant::Fidelity,
+    "fruit-salad" => Variant::FruitSalad,
+    "monochrome" => Variant::Monochrome,
+    "neutral" => Variant::Neutral,
+    "rainbow" => Variant::Rainbow,
+    "vibrant" => Variant::Vibrant,
+    "auto" | "tonal-spot" => Variant::TonalSpot,
+    _ => Variant::TonalSpot,
   }
 }
 
@@ -418,9 +387,123 @@ fn scheme_colors(scheme: &Scheme) -> [(&'static str, [u8; 4]); 49] {
   ]
 }
 
+fn argb_array(color: Argb) -> [u8; 4] {
+  [color.alpha, color.red, color.green, color.blue]
+}
+
+fn matugen_scheme_colors(s: &MatugenScheme) -> [(&'static str, [u8; 4]); 49] {
+  [
+    ("primary", argb_array(s.primary)),
+    ("on_primary", argb_array(s.on_primary)),
+    ("primary_container", argb_array(s.primary_container)),
+    ("on_primary_container", argb_array(s.on_primary_container)),
+    ("secondary", argb_array(s.secondary)),
+    ("on_secondary", argb_array(s.on_secondary)),
+    ("secondary_container", argb_array(s.secondary_container)),
+    (
+      "on_secondary_container",
+      argb_array(s.on_secondary_container),
+    ),
+    ("tertiary", argb_array(s.tertiary)),
+    ("on_tertiary", argb_array(s.on_tertiary)),
+    ("tertiary_container", argb_array(s.tertiary_container)),
+    ("on_tertiary_container", argb_array(s.on_tertiary_container)),
+    ("error", argb_array(s.error)),
+    ("on_error", argb_array(s.on_error)),
+    ("error_container", argb_array(s.error_container)),
+    ("on_error_container", argb_array(s.on_error_container)),
+    ("background", argb_array(s.background)),
+    ("on_background", argb_array(s.on_background)),
+    ("surface", argb_array(s.surface)),
+    ("on_surface", argb_array(s.on_surface)),
+    ("surface_variant", argb_array(s.surface_variant)),
+    ("on_surface_variant", argb_array(s.on_surface_variant)),
+    ("outline", argb_array(s.outline)),
+    ("outline_variant", argb_array(s.outline_variant)),
+    ("shadow", argb_array(s.shadow)),
+    ("scrim", argb_array(s.scrim)),
+    ("inverse_surface", argb_array(s.inverse_surface)),
+    ("inverse_on_surface", argb_array(s.inverse_on_surface)),
+    ("inverse_primary", argb_array(s.inverse_primary)),
+    ("primary_fixed", argb_array(s.primary_fixed)),
+    ("primary_fixed_dim", argb_array(s.primary_fixed_dim)),
+    ("on_primary_fixed", argb_array(s.on_primary_fixed)),
+    (
+      "on_primary_fixed_variant",
+      argb_array(s.on_primary_fixed_variant),
+    ),
+    ("secondary_fixed", argb_array(s.secondary_fixed)),
+    ("secondary_fixed_dim", argb_array(s.secondary_fixed_dim)),
+    ("on_secondary_fixed", argb_array(s.on_secondary_fixed)),
+    (
+      "on_secondary_fixed_variant",
+      argb_array(s.on_secondary_fixed_variant),
+    ),
+    ("tertiary_fixed", argb_array(s.tertiary_fixed)),
+    ("tertiary_fixed_dim", argb_array(s.tertiary_fixed_dim)),
+    ("on_tertiary_fixed", argb_array(s.on_tertiary_fixed)),
+    (
+      "on_tertiary_fixed_variant",
+      argb_array(s.on_tertiary_fixed_variant),
+    ),
+    ("surface_dim", argb_array(s.surface_dim)),
+    ("surface_bright", argb_array(s.surface_bright)),
+    (
+      "surface_container_lowest",
+      argb_array(s.surface_container_lowest),
+    ),
+    ("surface_container_low", argb_array(s.surface_container_low)),
+    ("surface_container", argb_array(s.surface_container)),
+    (
+      "surface_container_high",
+      argb_array(s.surface_container_high),
+    ),
+    (
+      "surface_container_highest",
+      argb_array(s.surface_container_highest),
+    ),
+    ("surface_tint", argb_array(s.surface_tint)),
+  ]
+}
+
+fn legacy_scheme(s: &MatugenScheme) -> Scheme {
+  Scheme {
+    primary: argb_array(s.primary),
+    on_primary: argb_array(s.on_primary),
+    primary_container: argb_array(s.primary_container),
+    on_primary_container: argb_array(s.on_primary_container),
+    secondary: argb_array(s.secondary),
+    on_secondary: argb_array(s.on_secondary),
+    secondary_container: argb_array(s.secondary_container),
+    on_secondary_container: argb_array(s.on_secondary_container),
+    tertiary: argb_array(s.tertiary),
+    on_tertiary: argb_array(s.on_tertiary),
+    tertiary_container: argb_array(s.tertiary_container),
+    on_tertiary_container: argb_array(s.on_tertiary_container),
+    error: argb_array(s.error),
+    on_error: argb_array(s.on_error),
+    error_container: argb_array(s.error_container),
+    on_error_container: argb_array(s.on_error_container),
+    background: argb_array(s.background),
+    on_background: argb_array(s.on_background),
+    surface: argb_array(s.surface),
+    on_surface: argb_array(s.on_surface),
+    surface_variant: argb_array(s.surface_variant),
+    on_surface_variant: argb_array(s.on_surface_variant),
+    outline: argb_array(s.outline),
+    outline_variant: argb_array(s.outline_variant),
+    shadow: argb_array(s.shadow),
+    scrim: argb_array(s.scrim),
+    inverse_surface: argb_array(s.inverse_surface),
+    inverse_on_surface: argb_array(s.inverse_on_surface),
+    inverse_primary: argb_array(s.inverse_primary),
+  }
+}
+
 type Formats = BTreeMap<&'static str, String>;
 type Schemes = BTreeMap<&'static str, Formats>;
 
+#[allow(clippy::too_many_arguments)]
 fn template_context(
   light: &Scheme,
   dark: &Scheme,
@@ -429,6 +512,7 @@ fn template_context(
   default_light: bool,
   imported_base16: Option<&[[u8; 4]; 16]>,
   theme: &str,
+  dynamic_type: Option<&str>,
 ) -> Context {
   let mut context = Context::new();
   let mut colors: BTreeMap<&str, Schemes> = BTreeMap::new();
@@ -436,8 +520,18 @@ fn template_context(
   let mut light_colors: BTreeMap<_, _> = scheme_colors(light).into_iter().collect();
   let mut dark_colors: BTreeMap<_, _> = scheme_colors(dark).into_iter().collect();
   if imported_base16.is_none() {
-    apply_dynamic_roles(&mut light_colors, light, seed, true);
-    apply_dynamic_roles(&mut dark_colors, dark, seed, false);
+    apply_dynamic_roles(
+      &mut light_colors,
+      seed,
+      dynamic_type.unwrap_or("tonal-spot"),
+      false,
+    );
+    apply_dynamic_roles(
+      &mut dark_colors,
+      seed,
+      dynamic_type.unwrap_or("tonal-spot"),
+      true,
+    );
   }
 
   for role in light_colors.keys() {
@@ -504,80 +598,19 @@ fn wallpaper_path(image: &Path) -> String {
 
 fn apply_dynamic_roles(
   colors: &mut BTreeMap<&'static str, [u8; 4]>,
-  scheme: &Scheme,
   seed: [u8; 4],
-  light: bool,
+  scheme_type: &str,
+  is_dark: bool,
 ) {
-  let source = Hct::from_int(seed);
-  let hue = source.hue();
-  let mut primary = TonalPalette::from_int(scheme.primary);
-  let mut secondary = TonalPalette::from_int(scheme.secondary);
-  let mut tertiary = TonalPalette::from_int(scheme.tertiary);
-  let mut neutral = TonalPalette::from_hue_and_chroma(hue, 4.0);
-  let mut neutral_variant = TonalPalette::from_hue_and_chroma(hue, 8.0);
-
-  let surface_tones = if light {
-    [87, 98, 98, 100, 96, 94, 92, 90]
-  } else {
-    [6, 6, 24, 4, 10, 12, 17, 22]
-  };
-  for (role, tone) in [
-    ("surface_dim", surface_tones[0]),
-    ("surface", surface_tones[1]),
-    ("surface_bright", surface_tones[2]),
-    ("surface_container_lowest", surface_tones[3]),
-    ("surface_container_low", surface_tones[4]),
-    ("surface_container", surface_tones[5]),
-    ("surface_container_high", surface_tones[6]),
-    ("surface_container_highest", surface_tones[7]),
-  ] {
-    colors.insert(role, neutral.tone(tone));
-  }
-
-  colors.insert("background", neutral.tone(if light { 98 } else { 6 }));
-  colors.insert("on_background", neutral.tone(if light { 10 } else { 90 }));
-  colors.insert(
-    "surface_variant",
-    neutral_variant.tone(if light { 90 } else { 30 }),
-  );
-  colors.insert(
-    "on_surface_variant",
-    neutral_variant.tone(if light { 30 } else { 80 }),
-  );
-  colors.insert("surface_tint", primary.tone(if light { 40 } else { 80 }));
-
-  for (palette, roles) in [
-    (
-      &mut primary,
-      [
-        "primary_fixed",
-        "primary_fixed_dim",
-        "on_primary_fixed",
-        "on_primary_fixed_variant",
-      ],
-    ),
-    (
-      &mut secondary,
-      [
-        "secondary_fixed",
-        "secondary_fixed_dim",
-        "on_secondary_fixed",
-        "on_secondary_fixed_variant",
-      ],
-    ),
-    (
-      &mut tertiary,
-      [
-        "tertiary_fixed",
-        "tertiary_fixed_dim",
-        "on_tertiary_fixed",
-        "on_tertiary_fixed_variant",
-      ],
-    ),
-  ] {
-    for (role, tone) in roles.into_iter().zip([90, 80, 10, 30]) {
-      colors.insert(role, palette.tone(tone));
-    }
+  let source = Argb::new(seed[0], seed[1], seed[2], seed[3]);
+  let scheme = MatugenScheme::from(DynamicScheme::by_variant(
+    source,
+    &matugen_variant(scheme_type),
+    is_dark,
+    None,
+  ));
+  for (role, color) in matugen_scheme_colors(&scheme) {
+    colors.insert(role, color);
   }
 }
 
@@ -1057,6 +1090,7 @@ mod tests {
       false,
       None,
       "dynamic tonal-spot",
+      Some("tonal-spot"),
     );
     let rendered =
       tera::Tera::one_off(include_str!("../templates/hyprland.lua"), &context, false).unwrap();
@@ -1081,6 +1115,7 @@ mod tests {
       false,
       None,
       "dynamic tonal-spot",
+      Some("tonal-spot"),
     );
     let rendered =
       tera::Tera::one_off(include_str!("../templates/kitty.conf"), &context, false).unwrap();
@@ -1105,6 +1140,7 @@ mod tests {
       false,
       None,
       "dynamic tonal-spot",
+      Some("tonal-spot"),
     );
     let rendered = tera::Tera::one_off(
       include_str!("../templates/kcolorscheme.colors"),
@@ -1132,6 +1168,7 @@ mod tests {
       false,
       None,
       "dynamic tonal-spot",
+      Some("tonal-spot"),
     );
     let rendered = tera::Tera::one_off("{{ wallpaper }}", &context, false).unwrap();
 
