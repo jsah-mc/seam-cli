@@ -68,9 +68,6 @@ pub fn generate(
     Some(&quickshell_output),
     &context,
   )?;
-  if !image.as_os_str().is_empty() {
-    set_wall(&image)?;
-  }
   reload_quickshell();
   let hyprland_output = config_home()?.join("hypr/modules/colors.lua");
   render_template(
@@ -145,37 +142,6 @@ fn reload_quickshell() {
   {
     eprintln!("Warning: QuickShell did not accept the theme reload request");
   }
-}
-
-fn set_wall(wallpaper: &Path) -> Result<(), Box<dyn std::error::Error>> {
-  let wallpaper = wallpaper.canonicalize().map_err(|error| {
-    io::Error::new(
-      error.kind(),
-      format!("cannot set wallpaper '{}': {error}", wallpaper.display()),
-    )
-  })?;
-  let status = Command::new("qs")
-    .args(["-c", "seam", "ipc", "call", "wallpaper", "set"])
-    .arg(&wallpaper)
-    .status()
-    .map_err(|error| {
-      io::Error::new(
-        error.kind(),
-        format!("could not run QuickShell wallpaper command: {error}"),
-      )
-    })?;
-
-  if !status.success() {
-    return Err(
-      io::Error::other(format!(
-        "QuickShell rejected wallpaper '{}' with status {status}",
-        wallpaper.display()
-      ))
-      .into(),
-    );
-  }
-
-  Ok(())
 }
 
 fn generate_dynamic_schemes(
