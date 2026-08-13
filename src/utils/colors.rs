@@ -123,6 +123,18 @@ pub fn generate(
     Some(&wallpaper_output),
     &context,
   )?;
+  let zed_output = config_home()?.join("zed/themes/seam.json");
+  render_template(
+    include_str!("../templates/zed.json"),
+    Some(&zed_output),
+    &context,
+  )?;
+  let zen_output = config_home()?.join("seam/generated/zen.css");
+  render_template(
+    include_str!("../templates/zen.css"),
+    Some(&zen_output),
+    &context,
+  )?;
   for template in templates {
     generate_template(&template.input, template.output.as_deref(), &context)?;
   }
